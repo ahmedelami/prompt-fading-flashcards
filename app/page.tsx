@@ -4,13 +4,14 @@ import { useState, useEffect } from "react";
 import { Deck } from "@/types";
 import { storage } from "@/lib/storage";
 import DeckList from "@/components/DeckList";
+import AddCardsMode from "@/components/AddCardsMode";
 import DeckEditor from "@/components/DeckEditor";
 import ReviewMode from "@/components/ReviewMode";
 
 export default function Home() {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null);
-  const [mode, setMode] = useState<"list" | "edit" | "review">("list");
+  const [mode, setMode] = useState<"list" | "add" | "edit" | "review">("list");
 
   useEffect(() => {
     setDecks(storage.getDecks());
@@ -26,10 +27,10 @@ export default function Home() {
     storage.saveDeck(newDeck);
     setDecks(storage.getDecks());
     setSelectedDeckId(newDeck.id);
-    setMode("edit");
+    setMode("add");
   };
 
-  const handleSelectDeck = (deckId: string, action: "edit" | "review") => {
+  const handleSelectDeck = (deckId: string, action: "add" | "edit" | "review") => {
     setSelectedDeckId(deckId);
     setMode(action);
   };
@@ -56,6 +57,9 @@ export default function Home() {
           onSelectDeck={handleSelectDeck}
           onDeleteDeck={handleDeleteDeck}
         />
+      )}
+      {mode === "add" && selectedDeck && (
+        <AddCardsMode deck={selectedDeck} onBack={handleBackToList} />
       )}
       {mode === "edit" && selectedDeck && (
         <DeckEditor deck={selectedDeck} onBack={handleBackToList} />
