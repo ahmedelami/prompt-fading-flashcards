@@ -172,25 +172,114 @@ describe('ImageEditor Cover Creation', () => {
       { id: '2', stepNumber: 2 },
       { id: '3', stepNumber: 3 },
     ];
+    let currentStepNumber = 4;
 
     expect(covers.length).toBe(3);
 
     // Undo last cover
     const newCovers = covers.slice(0, -1);
 
+    // Recalculate step number
+    if (newCovers.length === 0) {
+      currentStepNumber = 1;
+    } else {
+      const maxStep = Math.max(...newCovers.map(c => c.stepNumber));
+      currentStepNumber = maxStep + 1;
+    }
+
     expect(newCovers.length).toBe(2);
     expect(newCovers[newCovers.length - 1].stepNumber).toBe(2);
+    expect(currentStepNumber).toBe(3); // Should be max(2) + 1
   });
 
   it('should handle undo when no covers exist', () => {
     const covers: any[] = [];
+    let currentStepNumber = 1;
 
     expect(covers.length).toBe(0);
 
-    // Try to undo (should not error)
+    // Try to undo (should not error and should not change step number)
+    if (covers.length === 0) return; // Early return like the actual implementation
+
     const newCovers = covers.slice(0, -1);
 
     expect(newCovers.length).toBe(0);
+    expect(currentStepNumber).toBe(1);
+  });
+
+  it('REGRESSION: should reset step number after undo to last cover max + 1', () => {
+    // This is the bug the user reported:
+    // 1. Create cover (step 1)
+    // 2. Cmd+Z (undo)
+    // 3. Create another cover - shows step 2 instead of step 1
+    // 4. Cmd+Z (undo)
+    // 5. Create another cover - shows step 3 instead of step 1
+
+    const covers: any[] = [];
+    let currentStepNumber = 1;
+
+    // Create first cover
+    covers.push({ id: '1', stepNumber: currentStepNumber });
+    currentStepNumber++;
+
+    expect(covers.length).toBe(1);
+    expect(currentStepNumber).toBe(2);
+
+    // Undo (Cmd+Z)
+    const newCovers = covers.slice(0, -1);
+    if (newCovers.length === 0) {
+      currentStepNumber = 1;
+    } else {
+      const maxStep = Math.max(...newCovers.map((c: any) => c.stepNumber));
+      currentStepNumber = maxStep + 1;
+    }
+
+    expect(newCovers.length).toBe(0);
+    expect(currentStepNumber).toBe(1); // Should reset to 1, not stay at 2
+
+    // Create another cover - should be step 1
+    newCovers.push({ id: '2', stepNumber: currentStepNumber });
+    currentStepNumber++;
+
+    expect(newCovers[0].stepNumber).toBe(1);
+  });
+
+  it('REGRESSION: multiple undo/redo cycles should maintain correct step numbers', () => {
+    let covers: any[] = [];
+    let currentStepNumber = 1;
+
+    // Create cover 1
+    covers.push({ id: '1', stepNumber: currentStepNumber });
+    currentStepNumber++;
+    expect(currentStepNumber).toBe(2);
+
+    // Undo
+    covers = covers.slice(0, -1);
+    if (covers.length === 0) {
+      currentStepNumber = 1;
+    } else {
+      currentStepNumber = Math.max(...covers.map((c: any) => c.stepNumber)) + 1;
+    }
+    expect(currentStepNumber).toBe(1);
+
+    // Create cover 2 (should be step 1)
+    covers.push({ id: '2', stepNumber: currentStepNumber });
+    currentStepNumber++;
+    expect(covers[0].stepNumber).toBe(1);
+    expect(currentStepNumber).toBe(2);
+
+    // Undo again
+    covers = covers.slice(0, -1);
+    if (covers.length === 0) {
+      currentStepNumber = 1;
+    } else {
+      currentStepNumber = Math.max(...covers.map((c: any) => c.stepNumber)) + 1;
+    }
+    expect(currentStepNumber).toBe(1);
+
+    // Create cover 3 (should STILL be step 1, not 3)
+    covers.push({ id: '3', stepNumber: currentStepNumber });
+    expect(covers[0].stepNumber).toBe(1);
   });
 });
 

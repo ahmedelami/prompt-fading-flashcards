@@ -49,7 +49,19 @@ export default function ImageEditor({
   }, [imageData]);
 
   const handleRemoveLastCover = () => {
-    setCovers(covers.slice(0, -1));
+    if (covers.length === 0) return;
+
+    const newCovers = covers.slice(0, -1);
+    setCovers(newCovers);
+
+    // Recalculate currentStepNumber based on remaining covers
+    if (newCovers.length === 0) {
+      setCurrentStepNumber(1);
+    } else {
+      // Find the highest step number in remaining covers and set next step
+      const maxStep = Math.max(...newCovers.map(c => c.stepNumber));
+      setCurrentStepNumber(maxStep + 1);
+    }
   };
 
   useEffect(() => {
