@@ -378,9 +378,19 @@ export default function ReviewMode({ deck, onBack, mode = "main", onSaveForLater
         />
 
         {currentCard.covers.map((cover) => {
-          const shouldShow =
-            cover.stepNumber > currentStepNumber ||
-            (cover.stepNumber === currentStepNumber && !currentStepRevealed);
+          let shouldShow;
+
+          if (globalFadingMode === "forward") {
+            // Forward: hide steps AFTER current step
+            shouldShow =
+              cover.stepNumber > currentStepNumber ||
+              (cover.stepNumber === currentStepNumber && !currentStepRevealed);
+          } else {
+            // Backward: hide steps BEFORE current step
+            shouldShow =
+              cover.stepNumber < currentStepNumber ||
+              (cover.stepNumber === currentStepNumber && !currentStepRevealed);
+          }
 
           if (!shouldShow) return null;
 
