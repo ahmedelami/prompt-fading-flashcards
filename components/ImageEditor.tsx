@@ -42,6 +42,10 @@ export default function ImageEditor({
       setImageSize({ width: img.width, height: img.height });
     };
     img.src = imageData;
+
+    // Reset state when new image is loaded
+    setCovers([]);
+    setCurrentStepNumber(1);
   }, [imageData]);
 
   const handleRemoveLastCover = () => {
