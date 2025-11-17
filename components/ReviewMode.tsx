@@ -480,21 +480,30 @@ export default function ReviewMode({ deck, onBack, mode = "main", onSaveForLater
         />
 
         {currentCard.covers.map((cover) => {
-          let shouldShow;
+          let shouldHide;
 
           if (globalFadingMode === "forward") {
             // Forward: hide steps AFTER current step
-            shouldShow =
+            shouldHide =
               cover.stepNumber > currentStepNumber ||
               (cover.stepNumber === currentStepNumber && !currentStepRevealed);
           } else {
-            // Backward: hide steps BEFORE current step
-            shouldShow =
-              cover.stepNumber < currentStepNumber ||
+            // Backward mode: determine what to hide based on pass number
+            const passNumber = reviewState.cardProgress?.[currentCard.id] || 0;
+            const totalSteps = uniqueSteps.length;
+
+            // Pass 0: Hide only last step (step 3 if 3 steps total)
+            // Pass 1: Hide last 2 steps (steps 2-3)
+            // Pass 2: Hide all steps (steps 1-3)
+            const stepsToHideFromEnd = passNumber + 1;
+            const firstStepToHide = totalSteps - stepsToHideFromEnd + 1;
+
+            shouldHide =
+              cover.stepNumber >= firstStepToHide ||
               (cover.stepNumber === currentStepNumber && !currentStepRevealed);
           }
 
-          if (!shouldShow) return null;
+          if (!shouldHide) return null; // Don't render cover if content should be visible
 
           const displayCoords = getDisplayCoords(cover);
 
