@@ -17,6 +17,13 @@ interface DragState {
   currentY: number;
 }
 
+interface MoveState {
+  isMoving: boolean;
+  coverId: string | null;
+  offsetX: number;
+  offsetY: number;
+}
+
 export default function ImageEditor({
   imageData,
   onSave,
@@ -30,9 +37,16 @@ export default function ImageEditor({
     currentX: 0,
     currentY: 0,
   });
+  const [moveState, setMoveState] = useState<MoveState>({
+    isMoving: false,
+    coverId: null,
+    offsetX: 0,
+    offsetY: 0,
+  });
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [currentStepNumber, setCurrentStepNumber] = useState(1);
   const [isGrouping, setIsGrouping] = useState(false);
+  const [isMoveMode, setIsMoveMode] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
 
@@ -71,6 +85,11 @@ export default function ImageEditor({
       } else if ((e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
         handleRemoveLastCover();
+      } else if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        setIsMoveMode((prev) => !prev);
+      } else if (e.key === "Escape") {
+        setIsMoveMode(false);
       }
     };
 
@@ -104,59 +123,114 @@ export default function ImageEditor({
     };
   };
 
+  const findCoverAtPoint = (x: number, y: number): Cover | null => {
+    // Find cover at this point (in reverse order so we click topmost)
+    for (let i = covers.length - 1; i >= 0; i--) {
+      const cover = covers[i];
+      if (
+        x >= cover.x &&
+        x <= cover.x + cover.width &&
+        y >= cover.y &&
+        y <= cover.y + cover.height
+      ) {
+        return cover;
+      }
+    }
+    return null;
+  };
+
   const handleMouseDown = (e: React.MouseEvent) => {
     const coords = getRelativeCoords(e);
-    setDragState({
-      isDrawing: true,
-      startX: coords.x,
-      startY: coords.y,
-      currentX: coords.x,
-      currentY: coords.y,
-    });
+
+    if (isMoveMode) {
+      // Move mode: check if clicking on a cover
+      const cover = findCoverAtPoint(coords.x, coords.y);
+      if (cover) {
+        setMoveState({
+          isMoving: true,
+          coverId: cover.id,
+          offsetX: coords.x - cover.x,
+          offsetY: coords.y - cover.y,
+        });
+      }
+    } else {
+      // Draw mode: start drawing new cover
+      setDragState({
+        isDrawing: true,
+        startX: coords.x,
+        startY: coords.y,
+        currentX: coords.x,
+        currentY: coords.y,
+      });
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!dragState.isDrawing) return;
     const coords = getRelativeCoords(e);
-    setDragState((prev) => ({
-      ...prev,
-      currentX: coords.x,
-      currentY: coords.y,
-    }));
+
+    if (isMoveMode && moveState.isMoving && moveState.coverId) {
+      // Move mode: update cover position
+      const newX = coords.x - moveState.offsetX;
+      const newY = coords.y - moveState.offsetY;
+
+      setCovers((prevCovers) =>
+        prevCovers.map((cover) =>
+          cover.id === moveState.coverId
+            ? { ...cover, x: newX, y: newY }
+            : cover
+        )
+      );
+    } else if (!isMoveMode && dragState.isDrawing) {
+      // Draw mode: update drag box
+      setDragState((prev) => ({
+        ...prev,
+        currentX: coords.x,
+        currentY: coords.y,
+      }));
+    }
   };
 
   const handleMouseUp = () => {
-    if (!dragState.isDrawing) return;
+    if (isMoveMode && moveState.isMoving) {
+      // End moving
+      setMoveState({
+        isMoving: false,
+        coverId: null,
+        offsetX: 0,
+        offsetY: 0,
+      });
+    } else if (!isMoveMode && dragState.isDrawing) {
+      // End drawing
+      const x = Math.min(dragState.startX, dragState.currentX);
+      const y = Math.min(dragState.startY, dragState.currentY);
+      const width = Math.abs(dragState.currentX - dragState.startX);
+      const height = Math.abs(dragState.currentY - dragState.startY);
 
-    const x = Math.min(dragState.startX, dragState.currentX);
-    const y = Math.min(dragState.startY, dragState.currentY);
-    const width = Math.abs(dragState.currentX - dragState.startX);
-    const height = Math.abs(dragState.currentY - dragState.startY);
+      if (width > 5 && height > 5) {
+        const newCover: Cover = {
+          id: crypto.randomUUID(),
+          x,
+          y,
+          width,
+          height,
+          stepNumber: currentStepNumber,
+        };
+        setCovers([...covers, newCover]);
 
-    if (width > 5 && height > 5) {
-      const newCover: Cover = {
-        id: crypto.randomUUID(),
-        x,
-        y,
-        width,
-        height,
-        stepNumber: currentStepNumber,
-      };
-      setCovers([...covers, newCover]);
-
-      // If not grouping (G not held), move to next step
-      if (!isGrouping) {
-        setCurrentStepNumber((prev) => prev + 1);
+        // If not grouping (G not held), move to next step
+        if (!isGrouping) {
+          setCurrentStepNumber((prev) => prev + 1);
+        }
       }
-    }
 
-    setDragState({
-      isDrawing: false,
-      startX: 0,
-      startY: 0,
-      currentX: 0,
-      currentY: 0,
-    });
+      setDragState({
+        isDrawing: false,
+        startX: 0,
+        startY: 0,
+        currentX: 0,
+        currentY: 0,
+      });
+    }
   };
 
   const handleSave = () => {
@@ -226,17 +300,27 @@ export default function ImageEditor({
 
       <div className="mb-4">
         <p className="text-gray-600">
-          Drag to create covers. <strong>Hold G</strong> to group multiple covers into the same step.
+          {isMoveMode ? (
+            <>
+              <strong>MOVE MODE</strong> - Click and drag covers to reposition them. Press <strong>M</strong> or <strong>Esc</strong> to exit.
+            </>
+          ) : (
+            <>
+              Drag to create covers. <strong>Hold G</strong> to group multiple covers into the same step. Press <strong>M</strong> to move covers.
+            </>
+          )}
         </p>
         <p className="text-sm text-gray-500 mt-1">
-          {covers.length} cover{covers.length !== 1 ? "s" : ""} created | Next step: {currentStepNumber}
+          {covers.length} cover{covers.length !== 1 ? "s" : ""} created
+          {!isMoveMode && <> | Next step: {currentStepNumber}</>}
           {isGrouping && <span className="ml-2 text-blue-600 font-bold">⬤ GROUPING (release G to move to next step)</span>}
+          {isMoveMode && <span className="ml-2 text-purple-600 font-bold">✋ MOVE MODE</span>}
         </p>
       </div>
 
       <div
         ref={canvasRef}
-        className="relative inline-block cursor-crosshair select-none"
+        className={`relative inline-block select-none ${isMoveMode ? 'cursor-move' : 'cursor-crosshair'}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -252,10 +336,13 @@ export default function ImageEditor({
 
         {covers.map((cover) => {
           const displayCoords = getDisplayCoords(cover);
+          const isBeingMoved = moveState.isMoving && moveState.coverId === cover.id;
           return (
             <div
               key={cover.id}
-              className="absolute bg-black bg-opacity-60 border-2 border-white pointer-events-none"
+              className={`absolute bg-black bg-opacity-60 border-2 pointer-events-none ${
+                isBeingMoved ? 'border-purple-500 border-4' : 'border-white'
+              }`}
               style={{
                 left: `${displayCoords.x}px`,
                 top: `${displayCoords.y}px`,
