@@ -89,6 +89,9 @@ export default function ImageEditor({
       } else if (e.key === "m" || e.key === "M") {
         e.preventDefault();
         setIsMoveMode((prev) => !prev);
+      } else if (e.key === "a" || e.key === "A") {
+        e.preventDefault();
+        handleSave();
       } else if (e.key === "Escape") {
         setIsMoveMode(false);
         setIsGrouping(false);
@@ -279,7 +282,7 @@ export default function ImageEditor({
             onClick={handleSave}
             className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
           >
-            Add Card
+            Add Card (A)
           </button>
           <button
             onClick={onCancel}
