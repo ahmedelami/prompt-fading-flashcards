@@ -44,10 +44,17 @@ export default function ImageEditor({
     img.src = imageData;
   }, [imageData]);
 
+  const handleRemoveLastCover = () => {
+    setCovers(covers.slice(0, -1));
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "g" || e.key === "G") {
         setIsGrouping(true);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+        e.preventDefault();
+        handleRemoveLastCover();
       }
     };
 
@@ -65,7 +72,7 @@ export default function ImageEditor({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, []);
+  }, [covers]);
 
   const getRelativeCoords = (e: React.MouseEvent): { x: number; y: number } => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -134,10 +141,6 @@ export default function ImageEditor({
       currentX: 0,
       currentY: 0,
     });
-  };
-
-  const handleRemoveLastCover = () => {
-    setCovers(covers.slice(0, -1));
   };
 
   const handleSave = () => {

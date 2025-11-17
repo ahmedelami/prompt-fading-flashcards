@@ -21,10 +21,24 @@ export interface Deck {
   createdAt: number;
 }
 
+export type FadingMode = "forward" | "backward";
+
 export interface ReviewState {
   deckId: string;
   queue: string[]; // card IDs in review order
   currentCardId: string | null;
   currentStepIndex: number;
   completedCards: string[];
+  fadingMode?: FadingMode; // Optional for backward compatibility, defaults to "forward"
+  cardProgress?: Record<string, number>; // Track which step each card is on (cardId -> stepIndex)
+}
+
+export interface LaterReviewState {
+  deckId: string;
+  queue: string[]; // card IDs saved for later
+  currentCardId: string | null;
+  currentStepIndex: number;
+  completedCards: string[];
+  fadingMode?: FadingMode; // Optional for backward compatibility, defaults to "forward"
+  cardProgress?: Record<string, number>; // Track which step each card is on (cardId -> stepIndex)
 }

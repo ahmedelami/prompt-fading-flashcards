@@ -1,36 +1,84 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Deck, Card, ReviewState } from "@/types";
+import { Deck, Card, ReviewState, FadingMode } from "@/types";
 import { storage } from "@/lib/storage";
+import { getCurrentStepNumber } from "@/lib/fadingLogic";
 
 interface ReviewModeProps {
   deck: Deck;
   onBack: () => void;
+  mode?: "main" | "later";
+  onSaveForLater?: (cardId: string) => void;
+  onMergeToMain?: () => void;
+  globalFadingMode: FadingMode;
 }
 
-export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
+export default function ReviewMode({ deck, onBack, mode = "main", onSaveForLater, onMergeToMain, globalFadingMode }: ReviewModeProps) {
   const [reviewState, setReviewState] = useState<ReviewState | null>(null);
   const [currentStepRevealed, setCurrentStepRevealed] = useState(false);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const imageRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
-    // Initialize or load review state
-    let state = storage.getReviewState(deck.id);
-    if (!state || state.queue.length === 0) {
-      // Start new review session
-      state = {
-        deckId: deck.id,
-        queue: deck.cards.map((c) => c.id),
-        currentCardId: deck.cards[0]?.id || null,
-        currentStepIndex: 0,
-        completedCards: [],
-      };
+    // Initialize or load review state based on mode
+    let state;
+
+    if (mode === "later") {
+      state = storage.getLaterReviewState(deck.id);
+      if (!state || state.queue.length === 0) {
+        // Start new later review session (empty)
+        state = {
+          deckId: deck.id,
+          queue: [],
+          currentCardId: null,
+          currentStepIndex: 0,
+          completedCards: [],
+          cardProgress: {},
+        };
+      } else {
+        // Existing later queue - ensure currentCardId is set
+        if (!state.currentCardId && state.queue.length > 0) {
+          state.currentCardId = state.queue[0];
+          state.currentStepIndex = 0;
+        }
+        // Initialize cardProgress if missing (backward compatibility)
+        if (!state.cardProgress) {
+          state.cardProgress = {};
+        }
+        // Load progress for current card
+        if (state.currentCardId) {
+          state.currentStepIndex = state.cardProgress[state.currentCardId] || 0;
+        }
+      }
+      setReviewState(state);
+      storage.saveLaterReviewState(state);
+    } else {
+      state = storage.getReviewState(deck.id);
+      if (!state || state.queue.length === 0) {
+        // Start new review session
+        state = {
+          deckId: deck.id,
+          queue: deck.cards.map((c) => c.id),
+          currentCardId: deck.cards[0]?.id || null,
+          currentStepIndex: 0,
+          completedCards: [],
+          cardProgress: {},
+        };
+      } else {
+        // Initialize cardProgress if missing (backward compatibility)
+        if (!state.cardProgress) {
+          state.cardProgress = {};
+        }
+        // Load progress for current card
+        if (state.currentCardId) {
+          state.currentStepIndex = state.cardProgress[state.currentCardId] || 0;
+        }
+      }
+      setReviewState(state);
+      storage.saveReviewState(state);
     }
-    setReviewState(state);
-    storage.saveReviewState(state);
-  }, [deck.id]);
+  }, [deck.id, mode]);
 
   const currentCard = reviewState?.currentCardId
     ? deck.cards.find((c) => c.id === reviewState.currentCardId)
@@ -46,6 +94,22 @@ export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
     }
   }, [currentCard?.id]);
 
+  const saveState = useCallback((state: ReviewState) => {
+    if (mode === "later") {
+      storage.saveLaterReviewState(state);
+    } else {
+      storage.saveReviewState(state);
+    }
+  }, [mode]);
+
+  const clearState = useCallback(() => {
+    if (mode === "later") {
+      storage.clearLaterReviewState(deck.id);
+    } else {
+      storage.clearReviewState(deck.id);
+    }
+  }, [mode, deck.id]);
+
   const handleSpace = useCallback(() => {
     if (!reviewState || !currentCard) return;
 
@@ -59,13 +123,31 @@ export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
 
       // Move to next step or complete card
       if (reviewState.currentStepIndex < uniqueSteps.length - 1) {
-        // Move to next step
+        // Save progress for this card
+        const newCardProgress = {
+          ...reviewState.cardProgress,
+          [currentCard.id]: reviewState.currentStepIndex + 1,
+        };
+
+        // Move card to back of queue
+        const newQueue = [
+          ...reviewState.queue.filter((id) => id !== currentCard.id),
+          currentCard.id,
+        ];
+
+        // Move to next card
+        const nextCardId = newQueue[0];
+        const nextCardProgress = newCardProgress[nextCardId] || 0;
+
         const newState = {
           ...reviewState,
-          currentStepIndex: reviewState.currentStepIndex + 1,
+          queue: newQueue,
+          currentCardId: nextCardId,
+          currentStepIndex: nextCardProgress,
+          cardProgress: newCardProgress,
         };
         setReviewState(newState);
-        storage.saveReviewState(newState);
+        saveState(newState);
         setCurrentStepRevealed(false);
       } else {
         // Card completed - remove from queue
@@ -74,7 +156,7 @@ export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
 
         if (newQueue.length === 0) {
           // Session complete!
-          storage.clearReviewState(deck.id);
+          clearState();
           setReviewState({
             ...reviewState,
             queue: [],
@@ -86,19 +168,25 @@ export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
             ...reviewState,
             queue: newQueue,
             currentCardId: newQueue[0],
-            currentStepIndex: 0,
+            currentStepIndex: reviewState.cardProgress?.[newQueue[0]] || 0,
             completedCards: newCompletedCards,
           };
           setReviewState(newState);
-          storage.saveReviewState(newState);
+          saveState(newState);
           setCurrentStepRevealed(false);
         }
       }
     }
-  }, [reviewState, currentCard, currentStepRevealed, deck.id]);
+  }, [reviewState, currentCard, currentStepRevealed, deck.id, saveState, clearState]);
 
   const handleWrong = useCallback(() => {
     if (!reviewState || !currentCard || !currentStepRevealed) return;
+
+    // Reset progress for this card
+    const newCardProgress = {
+      ...reviewState.cardProgress,
+      [currentCard.id]: 0,
+    };
 
     // Move current card to back of queue
     const newQueue = [
@@ -106,17 +194,52 @@ export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
       currentCard.id,
     ];
 
+    // Move to next card and load its progress
+    const nextCardId = newQueue[0];
+    const nextCardProgress = newCardProgress[nextCardId] || 0;
+
     const newState = {
       ...reviewState,
       queue: newQueue,
-      currentCardId: newQueue[0],
-      currentStepIndex: 0,
+      currentCardId: nextCardId,
+      currentStepIndex: nextCardProgress,
+      cardProgress: newCardProgress,
     };
 
     setReviewState(newState);
-    storage.saveReviewState(newState);
+    saveState(newState);
     setCurrentStepRevealed(false);
-  }, [reviewState, currentCard, currentStepRevealed]);
+  }, [reviewState, currentCard, currentStepRevealed, saveState]);
+
+  const handleSaveForLater = useCallback(() => {
+    if (!reviewState || !currentCard || !onSaveForLater) return;
+
+    // Remove card from current queue
+    const newQueue = reviewState.queue.filter((id) => id !== currentCard.id);
+
+    // Call the callback to add to later queue
+    onSaveForLater(currentCard.id);
+
+    if (newQueue.length === 0) {
+      // No more cards in main queue
+      clearState();
+      setReviewState({
+        ...reviewState,
+        queue: [],
+        currentCardId: null,
+      });
+    } else {
+      const newState = {
+        ...reviewState,
+        queue: newQueue,
+        currentCardId: newQueue[0],
+        currentStepIndex: 0,
+      };
+      setReviewState(newState);
+      saveState(newState);
+      setCurrentStepRevealed(false);
+    }
+  }, [reviewState, currentCard, onSaveForLater, deck.id, saveState, clearState]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -195,7 +318,8 @@ export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
   }
 
   const uniqueSteps = [...new Set(currentCard.covers.map(c => c.stepNumber))].sort((a, b) => a - b);
-  const currentStepNumber = uniqueSteps[reviewState.currentStepIndex];
+  // Use global fading mode instead of per-session mode
+  const currentStepNumber = getCurrentStepNumber(reviewState.currentStepIndex, uniqueSteps, globalFadingMode);
 
   return (
     <div className="max-w-6xl mx-auto p-8">
@@ -208,6 +332,14 @@ export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
           </p>
         </div>
         <div className="flex gap-2">
+          {mode === "later" && onMergeToMain && (
+            <button
+              onClick={onMergeToMain}
+              className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+            >
+              Merge to Main Review
+            </button>
+          )}
           <button
             onClick={handleRestart}
             className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
@@ -224,9 +356,15 @@ export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
       </div>
 
       <div className="mb-6 bg-blue-50 border-l-4 border-blue-500 p-4">
-        <p className="text-sm font-medium">
+        <p className="text-sm font-medium mb-1">
           <strong>SPACE</strong> = {currentStepRevealed ? "Got it right (next step)" : "Reveal current step"} |{" "}
           <strong>B or 1</strong> = Got it wrong (move card to back)
+        </p>
+        <p className="text-xs text-gray-700">
+          Mode: <strong>{globalFadingMode === "forward" ? "Forward" : "Backward"}</strong> —{" "}
+          {globalFadingMode === "forward"
+            ? "Problem → Solution (reveal from beginning)"
+            : "Solution → Problem (reveal from end)"}
         </p>
       </div>
 
@@ -287,6 +425,14 @@ export default function ReviewMode({ deck, onBack }: ReviewModeProps) {
         >
           ✗ Wrong
         </button>
+        {mode === "main" && onSaveForLater && (
+          <button
+            onClick={handleSaveForLater}
+            className="px-12 py-6 bg-yellow-500 text-white text-2xl font-bold rounded-lg hover:bg-yellow-600 shadow-lg"
+          >
+            ⏸ Save for Later
+          </button>
+        )}
       </div>
     </div>
   );
