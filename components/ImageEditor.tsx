@@ -81,7 +81,8 @@ export default function ImageEditor({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "g" || e.key === "G") {
-        setIsGrouping(true);
+        e.preventDefault();
+        setIsGrouping((prev) => !prev);
       } else if ((e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
         handleRemoveLastCover();
@@ -90,22 +91,13 @@ export default function ImageEditor({
         setIsMoveMode((prev) => !prev);
       } else if (e.key === "Escape") {
         setIsMoveMode(false);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "g" || e.key === "G") {
         setIsGrouping(false);
-        // Move to next step when G is released
-        setCurrentStepNumber((prev) => prev + 1);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
     };
   }, [covers]);
 
@@ -306,14 +298,27 @@ export default function ImageEditor({
             </>
           ) : (
             <>
-              Drag to create covers. <strong>Hold G</strong> to group multiple covers into the same step. Press <strong>M</strong> to move covers.
+              Drag to create covers. Press <strong>G</strong> to group multiple covers into the same step. Press <strong>M</strong> to move covers.
             </>
           )}
         </p>
         <p className="text-sm text-gray-500 mt-1">
           {covers.length} cover{covers.length !== 1 ? "s" : ""} created
-          {!isMoveMode && <> | Next step: {currentStepNumber}</>}
-          {isGrouping && <span className="ml-2 text-blue-600 font-bold">⬤ GROUPING (release G to move to next step)</span>}
+          {!isMoveMode && <> | Current step: {currentStepNumber}</>}
+          {isGrouping && (
+            <>
+              <span className="ml-2 text-blue-600 font-bold">⬤ GROUP MODE</span>
+              <button
+                onClick={() => {
+                  setCurrentStepNumber((prev) => prev + 1);
+                  setIsGrouping(false);
+                }}
+                className="ml-2 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Next Step (or press G)
+              </button>
+            </>
+          )}
           {isMoveMode && <span className="ml-2 text-purple-600 font-bold">✋ MOVE MODE</span>}
         </p>
       </div>
