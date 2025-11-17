@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear LocalStorage</title>
+</head>
+<body>
+    <h1>Clear Flashcard Data</h1>
+    <button onclick="clearData()">Clear All Data</button>
+    <p id="result"></p>
+
+    <script>
+        function clearData() {
+            localStorage.removeItem('flashcard_decks');
+            const keys = Object.keys(localStorage);
+            keys.forEach(key => {
+                if (key.startsWith('review_state_')) {
+                    localStorage.removeItem(key);
+                }
+            });
+            document.getElementById('result').innerText = 'All flashcard data cleared! Refresh your app.';
+        }
+    </script>
+</body>
+</html>
