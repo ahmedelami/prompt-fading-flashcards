@@ -47,7 +47,14 @@ export default function ReviewMode({ deck, onBack, mode = "main", onSaveForLater
           state.cardProgress = {};
         }
         // Load progress for current card
-        if (state.currentCardId) {
+        if (state.currentCardId && globalFadingMode === "backward") {
+          const card = deck.cards.find(c => c.id === state.currentCardId);
+          if (card) {
+            const uniqueSteps = [...new Set(card.covers.map(c => c.stepNumber))].sort((a, b) => a - b);
+            const passNumber = state.cardProgress[state.currentCardId] || 0;
+            state.currentStepIndex = uniqueSteps.length - (uniqueSteps.length - passNumber);
+          }
+        } else if (state.currentCardId) {
           state.currentStepIndex = state.cardProgress[state.currentCardId] || 0;
         }
       }
@@ -65,13 +72,27 @@ export default function ReviewMode({ deck, onBack, mode = "main", onSaveForLater
           completedCards: [],
           cardProgress: {},
         };
+
+        // For backward mode, start at the correct index (showing only last step hidden)
+        if (globalFadingMode === "backward" && deck.cards[0]) {
+          const firstCard = deck.cards[0];
+          const uniqueSteps = [...new Set(firstCard.covers.map(c => c.stepNumber))].sort((a, b) => a - b);
+          state.currentStepIndex = uniqueSteps.length - 1; // Start at last step (pass 0)
+        }
       } else {
         // Initialize cardProgress if missing (backward compatibility)
         if (!state.cardProgress) {
           state.cardProgress = {};
         }
         // Load progress for current card
-        if (state.currentCardId) {
+        if (state.currentCardId && globalFadingMode === "backward") {
+          const card = deck.cards.find(c => c.id === state.currentCardId);
+          if (card) {
+            const uniqueSteps = [...new Set(card.covers.map(c => c.stepNumber))].sort((a, b) => a - b);
+            const passNumber = state.cardProgress[state.currentCardId] || 0;
+            state.currentStepIndex = uniqueSteps.length - (uniqueSteps.length - passNumber);
+          }
+        } else if (state.currentCardId) {
           state.currentStepIndex = state.cardProgress[state.currentCardId] || 0;
         }
       }
@@ -119,97 +140,178 @@ export default function ReviewMode({ deck, onBack, mode = "main", onSaveForLater
     } else {
       // Get unique step numbers sorted
       const uniqueSteps = [...new Set(currentCard.covers.map(c => c.stepNumber))].sort((a, b) => a - b);
-      const currentStepNumber = uniqueSteps[reviewState.currentStepIndex];
 
-      // Move to next step or complete card
-      if (reviewState.currentStepIndex < uniqueSteps.length - 1) {
-        // Save progress for this card
-        const newCardProgress = {
-          ...reviewState.cardProgress,
-          [currentCard.id]: reviewState.currentStepIndex + 1,
-        };
-
-        // Move card to back of queue
-        const newQueue = [
-          ...reviewState.queue.filter((id) => id !== currentCard.id),
-          currentCard.id,
-        ];
-
-        // Move to next card
-        const nextCardId = newQueue[0];
-        const nextCardProgress = newCardProgress[nextCardId] || 0;
-
-        const newState = {
-          ...reviewState,
-          queue: newQueue,
-          currentCardId: nextCardId,
-          currentStepIndex: nextCardProgress,
-          cardProgress: newCardProgress,
-        };
-        setReviewState(newState);
-        saveState(newState);
-        setCurrentStepRevealed(false);
-      } else {
-        // Card completed - remove from queue
-        const newQueue = reviewState.queue.filter((id) => id !== currentCard.id);
-        const newCompletedCards = [...reviewState.completedCards, currentCard.id];
-
-        if (newQueue.length === 0) {
-          // Session complete!
-          clearState();
-          setReviewState({
-            ...reviewState,
-            queue: [],
-            currentCardId: null,
-            completedCards: newCompletedCards,
-          });
-        } else {
+      if (globalFadingMode === "forward") {
+        // FORWARD MODE: Reveal all steps in one pass, then graduate
+        if (reviewState.currentStepIndex < uniqueSteps.length - 1) {
+          // Move to next step (stay on same card)
           const newState = {
             ...reviewState,
-            queue: newQueue,
-            currentCardId: newQueue[0],
-            currentStepIndex: reviewState.cardProgress?.[newQueue[0]] || 0,
-            completedCards: newCompletedCards,
+            currentStepIndex: reviewState.currentStepIndex + 1,
           };
           setReviewState(newState);
           saveState(newState);
           setCurrentStepRevealed(false);
+        } else {
+          // All steps revealed - graduate card (remove from queue)
+          const newQueue = reviewState.queue.filter((id) => id !== currentCard.id);
+          const newCompletedCards = [...reviewState.completedCards, currentCard.id];
+
+          if (newQueue.length === 0) {
+            // Session complete!
+            clearState();
+            setReviewState({
+              ...reviewState,
+              queue: [],
+              currentCardId: null,
+              completedCards: newCompletedCards,
+            });
+          } else {
+            const newState = {
+              ...reviewState,
+              queue: newQueue,
+              currentCardId: newQueue[0],
+              currentStepIndex: 0,
+              completedCards: newCompletedCards,
+              cardProgress: reviewState.cardProgress,
+            };
+            setReviewState(newState);
+            saveState(newState);
+            setCurrentStepRevealed(false);
+          }
+        }
+      } else {
+        // BACKWARD MODE: Multiple passes, each revealing more steps
+        const passNumber = reviewState.cardProgress?.[currentCard.id] || 0;
+        const stepsToRevealThisPass = uniqueSteps.length - passNumber;
+        const currentStepInPass = reviewState.currentStepIndex - (uniqueSteps.length - stepsToRevealThisPass);
+
+        if (currentStepInPass < stepsToRevealThisPass - 1) {
+          // More steps to reveal in this pass
+          const newState = {
+            ...reviewState,
+            currentStepIndex: reviewState.currentStepIndex + 1,
+          };
+          setReviewState(newState);
+          saveState(newState);
+          setCurrentStepRevealed(false);
+        } else {
+          // This pass is complete
+          const nextPassNumber = passNumber + 1;
+
+          if (nextPassNumber >= uniqueSteps.length) {
+            // All passes complete - graduate card
+            const newQueue = reviewState.queue.filter((id) => id !== currentCard.id);
+            const newCompletedCards = [...reviewState.completedCards, currentCard.id];
+
+            if (newQueue.length === 0) {
+              clearState();
+              setReviewState({
+                ...reviewState,
+                queue: [],
+                currentCardId: null,
+                completedCards: newCompletedCards,
+              });
+            } else {
+              const nextCardId = newQueue[0];
+              const nextCardPass = reviewState.cardProgress?.[nextCardId] || 0;
+              const newState = {
+                ...reviewState,
+                queue: newQueue,
+                currentCardId: nextCardId,
+                currentStepIndex: uniqueSteps.length - (uniqueSteps.length - nextCardPass),
+                completedCards: newCompletedCards,
+                cardProgress: reviewState.cardProgress,
+              };
+              setReviewState(newState);
+              saveState(newState);
+              setCurrentStepRevealed(false);
+            }
+          } else {
+            // Move to back for next pass
+            const newCardProgress = {
+              ...reviewState.cardProgress,
+              [currentCard.id]: nextPassNumber,
+            };
+
+            const newQueue = [
+              ...reviewState.queue.filter((id) => id !== currentCard.id),
+              currentCard.id,
+            ];
+
+            const nextCardId = newQueue[0];
+            const nextCardPass = newCardProgress[nextCardId] || 0;
+            const nextCardSteps = deck.cards.find(c => c.id === nextCardId)?.covers || [];
+            const nextUniqueSteps = [...new Set(nextCardSteps.map(c => c.stepNumber))].sort((a, b) => a - b);
+
+            const newState = {
+              ...reviewState,
+              queue: newQueue,
+              currentCardId: nextCardId,
+              currentStepIndex: nextUniqueSteps.length - (nextUniqueSteps.length - nextCardPass),
+              cardProgress: newCardProgress,
+            };
+            setReviewState(newState);
+            saveState(newState);
+            setCurrentStepRevealed(false);
+          }
         }
       }
     }
-  }, [reviewState, currentCard, currentStepRevealed, deck.id, saveState, clearState]);
+  }, [reviewState, currentCard, currentStepRevealed, deck, globalFadingMode, saveState, clearState]);
 
   const handleWrong = useCallback(() => {
     if (!reviewState || !currentCard || !currentStepRevealed) return;
 
-    // Reset progress for this card
-    const newCardProgress = {
-      ...reviewState.cardProgress,
-      [currentCard.id]: 0,
-    };
+    const uniqueSteps = [...new Set(currentCard.covers.map(c => c.stepNumber))].sort((a, b) => a - b);
 
-    // Move current card to back of queue
-    const newQueue = [
-      ...reviewState.queue.filter((id) => id !== currentCard.id),
-      currentCard.id,
-    ];
+    if (globalFadingMode === "forward") {
+      // FORWARD MODE: Reset to step 0, move to back
+      const newQueue = [
+        ...reviewState.queue.filter((id) => id !== currentCard.id),
+        currentCard.id,
+      ];
 
-    // Move to next card and load its progress
-    const nextCardId = newQueue[0];
-    const nextCardProgress = newCardProgress[nextCardId] || 0;
+      const nextCardId = newQueue[0];
+      const newState = {
+        ...reviewState,
+        queue: newQueue,
+        currentCardId: nextCardId,
+        currentStepIndex: 0,
+        cardProgress: reviewState.cardProgress,
+      };
 
-    const newState = {
-      ...reviewState,
-      queue: newQueue,
-      currentCardId: nextCardId,
-      currentStepIndex: nextCardProgress,
-      cardProgress: newCardProgress,
-    };
+      setReviewState(newState);
+      saveState(newState);
+      setCurrentStepRevealed(false);
+    } else {
+      // BACKWARD MODE: Reset current pass, move to back
+      const currentPass = reviewState.cardProgress?.[currentCard.id] || 0;
 
-    setReviewState(newState);
-    saveState(newState);
-    setCurrentStepRevealed(false);
-  }, [reviewState, currentCard, currentStepRevealed, saveState]);
+      // Keep same pass number but reset to start of this pass
+      const newQueue = [
+        ...reviewState.queue.filter((id) => id !== currentCard.id),
+        currentCard.id,
+      ];
+
+      const nextCardId = newQueue[0];
+      const nextCardPass = reviewState.cardProgress?.[nextCardId] || 0;
+      const nextCardSteps = deck.cards.find(c => c.id === nextCardId)?.covers || [];
+      const nextUniqueSteps = [...new Set(nextCardSteps.map(c => c.stepNumber))].sort((a, b) => a - b);
+
+      const newState = {
+        ...reviewState,
+        queue: newQueue,
+        currentCardId: nextCardId,
+        currentStepIndex: nextUniqueSteps.length - (nextUniqueSteps.length - nextCardPass),
+        cardProgress: reviewState.cardProgress, // Keep pass progress
+      };
+
+      setReviewState(newState);
+      saveState(newState);
+      setCurrentStepRevealed(false);
+    }
+  }, [reviewState, currentCard, currentStepRevealed, globalFadingMode, deck, saveState]);
 
   const handleSaveForLater = useCallback(() => {
     if (!reviewState || !currentCard || !onSaveForLater) return;
